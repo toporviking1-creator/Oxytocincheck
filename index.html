@@ -127,6 +127,8 @@ svg text { fill: var(--muted); font-family: var(--font-num); font-size: 11px; }
 .obslist li:last-child { border-bottom: 0; }
 .obslist .t { font-family: var(--font-num); color: var(--muted); }
 .obslist button { font: inherit; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 0.92rem; cursor: pointer; }
+.check input { width: auto; }
 .pdfmsg { font-size: 0.85rem; color: var(--muted); margin: 0; }
 .pdfmsg.err { color: var(--danger); }
 .copybox { width: 100%; min-height: 120px; font-family: var(--font-body); font-size: 0.9rem; }
@@ -203,6 +205,17 @@ footer { color: var(--muted); font-size: 0.82rem; }
       <div class="btnrow">
         <button class="btn" id="bUndo">Отменить последнее</button>
         <button class="btn" id="bFinish">Завершить индукцию</button>
+        <button class="btn warnb" id="bNoEffect">Эффект не достигнут</button>
+      </div>
+      <div class="confirm" id="noEffectConfirm" hidden>
+        <span>Прекратить инфузию: эффект не достигнут.</span>
+        <select id="noEffectReason" style="flex: 1 1 220px; font-family: var(--font-body)">
+          <option>Латентная фаза родов не достигнута</option>
+          <option>Не достигнуто 4–5 схваток за 10 мин</option>
+          <option>Нет динамики раскрытия шейки матки</option>
+        </select>
+        <button class="btn primary" id="bNoEffectYes">Прекратить</button>
+        <button class="btn" id="bNoEffectNo">Отмена</button>
       </div>
       <div class="confirm" id="finishConfirm" hidden>
         <span>Завершить и зафиксировать итог?</span>
@@ -253,11 +266,12 @@ footer { color: var(--muted); font-size: 0.82rem; }
     <div class="card">
       <h2>Сколько введено за индукцию</h2>
       <div class="grid">
-        <div class="field"><label for="cPlateau">Скорость, на которой достигнуты 4–5 схваток</label><select id="cPlateau"></select></div>
+        <div class="field"><label for="cPlateau" id="cPlateauLabel">Скорость, на которой достигнуты 4–5 схваток</label><select id="cPlateau"></select></div>
         <div class="field"><label for="cH">Длительность инфузии, ч</label><input id="cH" type="number" min="0" step="1" value="4"></div>
         <div class="field"><label for="cM">и мин</label><input id="cM" type="number" min="0" max="59" step="5" value="0"></div>
         <div class="field"><label for="cStart">Время начала</label><input id="cStart" type="time" value="08:00"></div>
       </div>
+      <label class="check"><input type="checkbox" id="cNoEffect"> Эффект не достигнут (латентная фаза не достигнута)</label>
       <p class="hint" id="cPlateauHint"></p>
       <div class="totals">
         <div class="metric hero"><span class="label">Суммарная доза</span><span class="v" id="cDose"></span></div>
@@ -433,6 +447,9 @@ footer { color: var(--muted); font-size: 0.82rem; }
     $('refBody').innerHTML = ref;
   }
   ['cPlateau', 'cH', 'cM'].forEach((id) => $(id).addEventListener('input', renderCalc));
+  $('cNoEffect').addEventListener('change', () => {
+    $('cPlateauLabel').textContent = $('cNoEffect').checked ? 'Максимальная достигнутая скорость' : 'Скорость, на которой достигнуты 4–5 схваток';
+  });
   $('bPdfCalc').onclick = () => {
     const s = settings();
     const plateau = parseInt($('cPlateau').value, 10) || 1;
@@ -444,10 +461,12 @@ footer { color: var(--muted); font-size: 0.82rem; }
     const segs = rows.map((r) => ({ a: r.from, b: r.to, rate: r.rate }));
     const sheet = gridRows(0, totalMin, SHEET_STEP, (a, b) => majorityRate(segs, a, b), (m) => at(m));
     const pl = rows.find((r) => r.plateau);
-    if (pl && plateau > 1 && sheet.length) mark(sheet, slotOf(sheet, pl.from), 'contr', '4–5 за 10 мин');
+    const noEffect = $('cNoEffect').checked;
+    if (pl && plateau > 1 && sheet.length && !noEffect) mark(sheet, slotOf(sheet, pl.from), 'contr', '4–5 за 10 мин');
     if (sheet.length) endRow(sheet, totalMin, (m) => at(m), 1);
+    if (noEffect && sheet.length) mark(sheet, sheet.length - 1, 'contr', 'эффект не достигнут');
     const totalU = rows.length ? rows[rows.length - 1].cum : 0;
-    makePdf(sheet, s, totalU, totalU / s.conc, 'pdfMsgCalc');
+    makePdf(sheet, s, totalU, totalU / s.conc, 'pdfMsgCalc', noEffect ? 'эффект не достигнут, латентная фаза родов не достигнута' : '');
   };
 
   // ---------- live ----------
@@ -519,12 +538,23 @@ footer { color: var(--muted); font-size: 0.82rem; }
     });
     save(); renderLive();
   };
-  $('bFinish').onclick = () => { $('finishConfirm').hidden = false; };
+  $('bFinish').onclick = () => { $('finishConfirm').hidden = false; $('noEffectConfirm').hidden = true; };
   $('bFinishNo').onclick = () => { $('finishConfirm').hidden = true; };
   $('bFinishYes').onclick = () => {
     $('finishConfirm').hidden = true; ses.phase = 'done'; push('end', 0, 'Индукция завершена');
     try { wake && wake.release(); } catch (e) {}
   };
+  $('bNoEffect').onclick = () => { $('noEffectConfirm').hidden = false; $('finishConfirm').hidden = true; };
+  $('bNoEffectNo').onclick = () => { $('noEffectConfirm').hidden = true; };
+  $('bNoEffectYes').onclick = () => {
+    $('noEffectConfirm').hidden = true; ses.phase = 'done';
+    const reason = $('noEffectReason').value;
+    ses.events.push({ t: Date.now(), rate: 0, type: 'noeffect', note: `Инфузия прекращена, эффект не достигнут: ${reason.toLowerCase()}`, reason });
+    save(); renderLive();
+    try { wake && wake.release(); } catch (e) {}
+  };
+  // причина, если индукция прекращена без эффекта
+  const noEffectReason = () => { const e = ses && ses.events[ses.events.length - 1]; return e && e.type === 'noeffect' ? e.reason : ''; };
   $('bNew').onclick = () => { $('newConfirm').hidden = false; };
   $('bNewNo').onclick = () => { $('newConfirm').hidden = true; };
   $('bNewYes').onclick = () => { $('newConfirm').hidden = true; ses = null; save(); setNowTime(); store.del('oxy.patient'); loadPatient(); renderLive(); };
@@ -594,14 +624,17 @@ footer { color: var(--muted); font-size: 0.82rem; }
     const end = done ? ev[ev.length - 1].t : Date.now();
     const segs = ev.map((e, i) => ({ a: e.t, b: i + 1 < ev.length ? ev[i + 1].t : Infinity, rate: e.rate }));
     const rows = gridRows(t0, end, SHEET_STEP * 60000, (a, b) => majorityRate(segs, a, b), clock);
-    ev.forEach((e) => { if (e.type === 'hold') mark(rows, slotOf(rows, e.t), 'contr', '4–5 за 10 мин'); });
+    const reason = noEffectReason();
+    if (!reason) ev.forEach((e) => { if (e.type === 'hold') mark(rows, slotOf(rows, e.t), 'contr', '4–5 за 10 мин'); });
     (ses.obs || []).forEach((o) => { const i = slotOf(rows, o.t); for (const k in O_IDS) mark(rows, i, k, o[k]); });
     if (done) endRow(rows, end, clock, 60000);
+    if (reason) mark(rows, rows.length - 1, 'contr', 'эффект не достигнут');
     return rows;
   }
   $('bPdfLive').onclick = () => {
     const s = settings(), d = doseUntil(Date.now());
-    makePdf(liveSheet(s), s, d.units, d.ml, 'pdfMsgLive');
+    const r = noEffectReason();
+    makePdf(liveSheet(s), s, d.units, d.ml, 'pdfMsgLive', r ? `эффект не достигнут, ${r.toLowerCase()}` : '');
   };
 
   let pdfLib = null;
@@ -612,7 +645,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
     if (!pdfLib) pdfLib = loadScript('vendor/pdfmake/pdfmake.min.js').then(() => loadScript('vendor/pdfmake/vfs_fonts.js')).then(() => window.pdfMake);
     return pdfLib;
   }
-  function makePdf(rows, s, units, ml, msgId) {
+  function makePdf(rows, s, units, ml, msgId, outcome) {
     const msg = $(msgId); msg.hidden = false; msg.className = 'pdfmsg'; msg.textContent = 'Готовлю PDF…';
     loadPdfLib().then(async (pdfMake) => {
       const pt = patient();
@@ -634,6 +667,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
           { text: `Раствор: ${fmt(s.units, 1)} Ед окситоцина в ${fmt(s.vol, 0)} мл (${fmt(s.conc, 3)} Ед/мл). Схема: старт ${fmt(s.start, 1)} мл/ч, +${fmt(s.step, 1)} мл/ч каждые ${s.interval} мин до 4–5 схваток за 10 мин.`, fontSize: 9, color: '#333333', margin: [0, 2, 0, 8] },
           { table: { headerRows: 1, widths: [44, 66, '*', 54, 62, 42, 32, 48], body }, layout: { hLineWidth: () => 0.7, vLineWidth: () => 0.7 } },
           { text: [{ text: 'Суммарно введено окситоцина: ', bold: true }, `${fmtU(units)} Ед (${fmt(ml, 1)} мл раствора)`], fontSize: 12, margin: [0, 10, 0, 0] },
+          outcome ? { text: [{ text: 'Итог индукции: ', bold: true }, outcome + '.'], fontSize: 12, margin: [0, 4, 0, 0] } : '',
           { text: 'Подпись ______________________', alignment: 'right', margin: [0, 10, 0, 0], fontSize: 11 }
         ]
       };
@@ -661,7 +695,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
     });
   }
 
-  const TYPE_LABEL = { start: 'Старт', up: 'Шаг вверх', hold: 'Плато', resume: 'Титрование', down: 'Шаг вниз', pause: 'Стоп', restart: 'Возобновлено', end: 'Конец' };
+  const TYPE_LABEL = { noeffect: 'Без эффекта', start: 'Старт', up: 'Шаг вверх', hold: 'Плато', resume: 'Титрование', down: 'Шаг вниз', pause: 'Стоп', restart: 'Возобновлено', end: 'Конец' };
   let beepArmed = false, beeped = 0;
   function beep() {
     try {
@@ -677,7 +711,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
     const lines = [];
     lines.push(`Родовозбуждение окситоцином по низкодозированной схеме: ${fmt(s.units, 1)} Ед в ${fmt(s.vol, 0)} мл (${fmt(s.conc, 3)} Ед/мл) через инфузомат.`);
     lines.push(`Начало ${clock(ev[0].t)}, старт ${fmt(s.start, 1)} мл/ч (${fmt(mu(s.start, s), 1)} мЕд/мин), увеличение на ${fmt(s.step, 1)} мл/ч каждые ${s.interval} мин.`);
-    ev.slice(1).forEach((e) => lines.push(`${clock(e.t)} — ${e.note.toLowerCase()}${e.rate ? `: ${fmt(e.rate, 1)} мл/ч (${fmt(mu(e.rate, s), 1)} мЕд/мин)` : ''}.`));
+    ev.slice(1).forEach((e) => lines.push(`${clock(e.t)} — ${(e.type === 'hold' && noEffectReason() ? 'Скорость сохраняется' : e.note).toLowerCase()}${e.rate ? `: ${fmt(e.rate, 1)} мл/ч (${fmt(mu(e.rate, s), 1)} мЕд/мин)` : ''}.`));
     lines.push(`${ses.phase === 'done' ? 'Итого' : `На ${clock(now)}`} за ${hm((end - ev[0].t) / 60000)} введено ${fmtU(d.units)} Ед окситоцина (${fmt(d.ml, 1)} мл раствора).`);
     return lines.join('\n');
   }
@@ -700,7 +734,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
     if (phase === 'titrate') st.textContent = `Титрование · ступень ${ses.step}`;
     if (phase === 'hold') { st.textContent = 'Плато: скорость сохраняется'; st.classList.add('hold'); }
     if (phase === 'pause') { st.textContent = 'Инфузия остановлена'; st.classList.add('pause'); }
-    if (phase === 'done') { st.textContent = 'Индукция завершена'; st.classList.add('done'); }
+    if (phase === 'done') { st.textContent = noEffectReason() ? 'Прекращена: эффект не достигнут' : 'Индукция завершена'; st.classList.add(noEffectReason() ? 'pause' : 'done'); }
 
     const dueAt = lastChangeT() + s.interval * 60000;
     const isDue = phase === 'titrate' && now >= dueAt;
@@ -723,6 +757,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
     $('bPause').hidden = done || phase === 'pause';
     $('bRestart').hidden = phase !== 'pause';
     $('bFinish').hidden = done;
+    $('bNoEffect').hidden = done;
     $('bUndo').disabled = ev.length <= 1;
 
     $('lLog').innerHTML = ev.map((e) => `<li><span class="t">${clock(e.t)}</span><span>${TYPE_LABEL[e.type]}</span><span class="r">${e.rate ? fmt(e.rate, 1) + ' мл/ч' : '—'}</span></li>`).join('');
