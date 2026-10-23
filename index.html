@@ -441,8 +441,11 @@ footer { color: var(--muted); font-size: 0.82rem; }
     const [h, m] = ($('cStart').value || '08:00').split(':').map(Number);
     const base = new Date(); base.setHours(h, m, 0, 0);
     const at = (min) => clock(base.getTime() + min * 60000);
-    const sheet = rows.map((r) => ({ time: at(r.from), dose: doseCell(r.rate, s), contr: r.plateau && plateau > 1 ? '4–5 за 10 мин' : '' }));
-    if (rows.length) sheet.push({ time: at(totalMin), dose: 'окончание' });
+    const segs = rows.map((r) => ({ a: r.from, b: r.to, rate: r.rate }));
+    const sheet = gridRows(0, totalMin, SHEET_STEP, (a, b) => majorityRate(segs, a, b), (m) => at(m));
+    const pl = rows.find((r) => r.plateau);
+    if (pl && plateau > 1 && sheet.length) mark(sheet, slotOf(sheet, pl.from), 'contr', '4–5 за 10 мин');
+    if (sheet.length) endRow(sheet, totalMin, (m) => at(m), 1);
     const totalU = rows.length ? rows[rows.length - 1].cum : 0;
     makePdf(sheet, s, totalU, totalU / s.conc, 'pdfMsgCalc');
   };
@@ -561,18 +564,40 @@ footer { color: var(--muted); font-size: 0.82rem; }
     let r = 0; for (const e of ses.events) { if (e.t <= t) r = e.rate; else break; } return r;
   }
   function doseCell(rate, s) { return rate ? `${fmt(mu(rate, s), 1)} мЕд/мин\n${fmt(rate, 1)} мл/ч` : 'стоп'; }
-  const EVENT_CELL = { hold: '4–5 за 10 мин', pause: '', end: '' };
-  function liveSheet(s) {
+  // Лист заполняется с шагом 30 мин от начала инфузии.
+  const SHEET_STEP = 30;
+  // скорость, которая действовала большую часть интервала [a, b)
+  function majorityRate(segs, a, b) {
+    if (b <= a) { const cur = segs.filter((g) => g.a <= a).pop(); return cur ? cur.rate : 0; }
+    const dur = new Map();
+    segs.forEach((g) => { const d = Math.min(g.b, b) - Math.max(g.a, a); if (d > 0) dur.set(g.rate, (dur.get(g.rate) || 0) + d); });
+    let best = 0, bd = -1; dur.forEach((d, r) => { if (d > bd) { bd = d; best = r; } });
+    return best;
+  }
+  function gridRows(from, to, step, rateFn, label) {
     const rows = [];
-    ses.events.forEach((e) => rows.push({ t: e.t, time: clock(e.t), dose: e.type === 'end' ? 'окончание' : doseCell(e.rate, s), contr: EVENT_CELL[e.type] || '' }));
-    (ses.obs || []).forEach((o) => {
-      const same = rows.find((r) => r.time === clock(o.t) && !r.obs);
-      const target = same || { t: o.t, time: clock(o.t), dose: doseCell(rateAtTime(o.t), s), contr: '' };
-      target.obs = true;
-      for (const k in O_IDS) if (o[k]) target[k] = o[k];
-      if (!same) rows.push(target);
-    });
-    return rows.sort((a, b) => a.t - b.t);
+    for (let t = from; t <= to + 1e-9; t += step) rows.push({ t, time: label(t), dose: doseCell(rateFn(t, Math.min(t + step, to)), settings()) });
+    return rows;
+  }
+  const slotOf = (rows, t) => rows.reduce((best, r, i) => (Math.abs(r.t - t) < Math.abs(rows[best].t - t) ? i : best), 0);
+  function mark(rows, i, key, val) {
+    const r = rows[i]; if (!val) return;
+    r[key] = r[key] && r[key] !== val ? `${r[key]}; ${val}` : val;
+  }
+  function endRow(rows, end, label, tol) {
+    const last = rows[rows.length - 1];
+    if (end - last.t < tol) last.dose = 'окончание';
+    else rows.push({ t: end, time: label(end), dose: 'окончание' });
+  }
+  function liveSheet(s) {
+    const ev = ses.events, t0 = ev[0].t, done = ses.phase === 'done';
+    const end = done ? ev[ev.length - 1].t : Date.now();
+    const segs = ev.map((e, i) => ({ a: e.t, b: i + 1 < ev.length ? ev[i + 1].t : Infinity, rate: e.rate }));
+    const rows = gridRows(t0, end, SHEET_STEP * 60000, (a, b) => majorityRate(segs, a, b), clock);
+    ev.forEach((e) => { if (e.type === 'hold') mark(rows, slotOf(rows, e.t), 'contr', '4–5 за 10 мин'); });
+    (ses.obs || []).forEach((o) => { const i = slotOf(rows, o.t); for (const k in O_IDS) mark(rows, i, k, o[k]); });
+    if (done) endRow(rows, end, clock, 60000);
+    return rows;
   }
   $('bPdfLive').onclick = () => {
     const s = settings(), d = doseUntil(Date.now());
