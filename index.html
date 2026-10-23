@@ -589,7 +589,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
   }
   function makePdf(rows, s, units, ml, msgId) {
     const msg = $(msgId); msg.hidden = false; msg.className = 'pdfmsg'; msg.textContent = 'Готовлю PDF…';
-    loadPdfLib().then((pdfMake) => {
+    loadPdfLib().then(async (pdfMake) => {
       const pt = patient();
       const dateRu = pt.date ? pt.date.split('-').reverse().join('.') : '';
       const C = { fontSize: 9, margin: [2, 3, 2, 3] };
@@ -613,8 +613,23 @@ footer { color: var(--muted); font-size: 0.82rem; }
         ]
       };
       const fname = `oksitocin_${(pt.ir || 'list').replace(/[^\wА-Яа-яЁё-]+/g, '_')}_${pt.date || todayISO()}.pdf`;
-      pdfMake.createPdf(dd).download(fname, () => { msg.textContent = `Сохранён файл ${fname}`; });
-      msg.textContent = `Сохраняю ${fname}`;
+      const doc = pdfMake.createPdf(dd);
+      // На claude.ai страница не может скачивать сама: файл передаётся через окно сохранения.
+      const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
+      if (!dl) {
+        doc.download(fname, () => { msg.textContent = `Сохранён файл ${fname}`; });
+        msg.textContent = `Сохраняю ${fname}`;
+        return;
+      }
+      const blob = await new Promise((res) => doc.getBlob(res));
+      msg.textContent = 'Подтвердите сохранение файла';
+      try {
+        await dl.save({ filename: fname, data: blob });
+        msg.textContent = `Сохранён файл ${fname}`;
+      } catch (e) {
+        msg.className = e && e.code === 'declined' ? 'pdfmsg' : 'pdfmsg err';
+        msg.textContent = e && e.code === 'declined' ? 'Сохранение отменено' : 'Сохранить файл здесь не удалось. Откройте приложение на сайте GitHub Pages.';
+      }
     }).catch(() => {
       pdfLib = null; msg.className = 'pdfmsg err';
       msg.textContent = 'Не удалось загрузить модуль PDF. Откройте приложение с сайта или из папки репозитория целиком (нужна папка vendor).';
