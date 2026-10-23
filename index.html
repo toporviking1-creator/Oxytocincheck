@@ -122,6 +122,13 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 svg text { fill: var(--muted); font-family: var(--font-num); font-size: 11px; }
 .chartwrap { overflow-x: auto; }
 .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.obslist { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.obslist li { display: grid; grid-template-columns: 60px 1fr auto; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); align-items: center; font-size: 0.9rem; }
+.obslist li:last-child { border-bottom: 0; }
+.obslist .t { font-family: var(--font-num); color: var(--muted); }
+.obslist button { font: inherit; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.pdfmsg { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.pdfmsg.err { color: var(--danger); }
 .copybox { width: 100%; min-height: 120px; font-family: var(--font-body); font-size: 0.9rem; }
 footer { color: var(--muted); font-size: 0.82rem; }
 @media (prefers-reduced-motion: no-preference) { .due { animation: pulse 1.6s ease-in-out infinite; } }
@@ -148,6 +155,16 @@ footer { color: var(--muted); font-size: 0.82rem; }
     </div>
     <p class="hint">По умолчанию 5 Ед в 50 мл (0,1 Ед/мл): 1,8 мл/ч = 3 мЕд/мин. Порог предупреждения задайте по протоколу отделения.</p>
   </details>
+
+  <div class="card">
+    <h2>Пациентка</h2>
+    <div class="grid">
+      <div class="field" style="grid-column: 1 / -1"><label for="pName">ФИО</label><input id="pName" type="text" autocomplete="off" style="font-family: var(--font-body)"></div>
+      <div class="field"><label for="pIr">№ ИР</label><input id="pIr" type="text" autocomplete="off"></div>
+      <div class="field"><label for="pDate">Дата</label><input id="pDate" type="date"></div>
+    </div>
+    <p class="hint">Попадают в шапку листа наблюдения (PDF). Хранятся только на этом устройстве.</p>
+  </div>
 
   <div class="tabs" role="tablist">
     <button role="tab" id="tabLive" aria-selected="true" aria-controls="paneLive">У постели (таймер)</button>
@@ -194,6 +211,22 @@ footer { color: var(--muted); font-size: 0.82rem; }
       </div>
     </div>
 
+    <div class="card" id="obsCard" hidden>
+      <h2>Наблюдение в лист</h2>
+      <div class="grid">
+        <div class="field"><label for="oTime">Время</label><input id="oTime" type="time"></div>
+        <div class="field"><label for="oContr">Схватки</label><input id="oContr" type="text" placeholder="3 за 10 мин, 40 с"></div>
+        <div class="field"><label for="oKtg">КТГ</label><input id="oKtg" type="text" placeholder="норма / 8 б."></div>
+        <div class="field"><label for="oBp">АД</label><input id="oBp" type="text" inputmode="numeric" placeholder="120/80"></div>
+        <div class="field"><label for="oPulse">Пульс</label><input id="oPulse" type="text" inputmode="numeric" placeholder="80"></div>
+        <div class="field"><label for="oTemp">t, °C</label><input id="oTemp" type="text" inputmode="decimal" placeholder="36,6"></div>
+        <div class="field"><label for="oDiur">Диурез, мл</label><input id="oDiur" type="text" inputmode="numeric"></div>
+      </div>
+      <p class="hint">Время и доза подставляются автоматически: доза берётся по скорости инфузии на это время.</p>
+      <div class="btnrow"><button class="btn primary" id="bObsAdd">Добавить в лист</button></div>
+      <ol class="obslist" id="oList"></ol>
+    </div>
+
     <div class="card" id="liveLogCard" hidden>
       <h2>Журнал</h2>
       <ol class="log" id="lLog"></ol>
@@ -202,9 +235,11 @@ footer { color: var(--muted); font-size: 0.82rem; }
         <textarea class="copybox" id="lSummary" readonly></textarea>
       </div>
       <div class="btnrow">
+        <button class="btn primary" id="bPdfLive">Лист наблюдения (PDF)</button>
         <button class="btn" id="bCopy">Скопировать запись</button>
         <button class="btn" id="bNew">Новая индукция</button>
       </div>
+      <p class="pdfmsg" id="pdfMsgLive" hidden></p>
       <div class="confirm" id="newConfirm" hidden>
         <span>Удалить текущий журнал?</span>
         <button class="btn primary" id="bNewYes">Удалить</button>
@@ -221,6 +256,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
         <div class="field"><label for="cPlateau">Скорость, на которой достигнуты 4–5 схваток</label><select id="cPlateau"></select></div>
         <div class="field"><label for="cH">Длительность инфузии, ч</label><input id="cH" type="number" min="0" step="1" value="4"></div>
         <div class="field"><label for="cM">и мин</label><input id="cM" type="number" min="0" max="59" step="5" value="0"></div>
+        <div class="field"><label for="cStart">Время начала</label><input id="cStart" type="time" value="08:00"></div>
       </div>
       <p class="hint" id="cPlateauHint"></p>
       <div class="totals">
@@ -237,6 +273,8 @@ footer { color: var(--muted); font-size: 0.82rem; }
           <tfoot id="cFoot"></tfoot>
         </table>
       </div>
+      <div class="btnrow"><button class="btn primary" id="bPdfCalc">Лист наблюдения (PDF)</button></div>
+      <p class="pdfmsg" id="pdfMsgCalc" hidden></p>
     </div>
 
     <div class="card">
@@ -293,6 +331,17 @@ footer { color: var(--muted); font-size: 0.82rem; }
     const s = settings(); store.set('oxy.settings', { units: s.units, vol: s.vol, start: s.start, step: s.step, interval: s.interval, maxMu: s.maxMu });
     renderConc(); renderCalc(); renderLive();
   }));
+
+  // ---------- patient ----------
+  const P_IDS = { name: 'pName', ir: 'pIr', date: 'pDate' };
+  const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  function loadPatient() {
+    const pt = store.get('oxy.patient') || {};
+    $('pName').value = pt.name || ''; $('pIr').value = pt.ir || ''; $('pDate').value = pt.date || todayISO();
+  }
+  const patient = () => ({ name: $('pName').value.trim(), ir: $('pIr').value.trim(), date: $('pDate').value });
+  Object.values(P_IDS).forEach((id) => $(id).addEventListener('input', () => store.set('oxy.patient', patient())));
+  loadPatient();
 
   // ---------- tabs ----------
   function showTab(which) {
@@ -384,6 +433,19 @@ footer { color: var(--muted); font-size: 0.82rem; }
     $('refBody').innerHTML = ref;
   }
   ['cPlateau', 'cH', 'cM'].forEach((id) => $(id).addEventListener('input', renderCalc));
+  $('bPdfCalc').onclick = () => {
+    const s = settings();
+    const plateau = parseInt($('cPlateau').value, 10) || 1;
+    const totalMin = Math.max(0, (parseFloat($('cH').value) || 0) * 60 + (parseFloat($('cM').value) || 0));
+    const rows = buildSchedule(plateau, totalMin, s);
+    const [h, m] = ($('cStart').value || '08:00').split(':').map(Number);
+    const base = new Date(); base.setHours(h, m, 0, 0);
+    const at = (min) => clock(base.getTime() + min * 60000);
+    const sheet = rows.map((r) => ({ time: at(r.from), dose: doseCell(r.rate, s), contr: r.plateau && plateau > 1 ? '4–5 за 10 мин' : '' }));
+    if (rows.length) sheet.push({ time: at(totalMin), dose: 'окончание' });
+    const totalU = rows.length ? rows[rows.length - 1].cum : 0;
+    makePdf(sheet, s, totalU, totalU / s.conc, 'pdfMsgCalc');
+  };
 
   // ---------- live ----------
   // session: { events: [{t, rate, type, note}], phase: 'titrate'|'hold'|'pause'|'done', step, settings }
@@ -462,7 +524,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
   };
   $('bNew').onclick = () => { $('newConfirm').hidden = false; };
   $('bNewNo').onclick = () => { $('newConfirm').hidden = true; };
-  $('bNewYes').onclick = () => { $('newConfirm').hidden = true; ses = null; save(); setNowTime(); renderLive(); };
+  $('bNewYes').onclick = () => { $('newConfirm').hidden = true; ses = null; save(); setNowTime(); store.del('oxy.patient'); loadPatient(); renderLive(); };
   $('bCopy').onclick = () => {
     const ta = $('lSummary');
     const fallback = () => { ta.focus(); ta.select(); $('bCopy').textContent = 'Выделено, скопируйте вручную'; };
@@ -470,6 +532,94 @@ footer { color: var(--muted); font-size: 0.82rem; }
       navigator.clipboard.writeText(ta.value).then(() => { $('bCopy').textContent = 'Скопировано'; setTimeout(() => ($('bCopy').textContent = 'Скопировать запись'), 1800); }, fallback);
     } catch (e) { fallback(); }
   };
+
+  // ---------- наблюдения и лист ----------
+  const O_IDS = { contr: 'oContr', ktg: 'oKtg', bp: 'oBp', pulse: 'oPulse', temp: 'oTemp', diur: 'oDiur' };
+  const hhmm = (ts) => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  function timeToTs(v) {
+    // время в пределах суток от начала инфузии
+    const [h, m] = v.split(':').map(Number); const d = new Date(ses.events[0].t); d.setHours(h, m, 0, 0);
+    if (d.getTime() < ses.events[0].t - 60000) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+  $('bObsAdd').onclick = () => {
+    const o = { t: $('oTime').value ? timeToTs($('oTime').value) : Date.now() };
+    let any = false;
+    for (const k in O_IDS) { o[k] = $(O_IDS[k]).value.trim(); if (o[k]) any = true; }
+    if (!any) { $('oContr').focus(); return; }
+    ses.obs = (ses.obs || []).concat(o).sort((a, b) => a.t - b.t);
+    for (const k in O_IDS) $(O_IDS[k]).value = '';
+    $('oTime').value = hhmm(Date.now());
+    save(); renderLive();
+  };
+  $('oList').addEventListener('click', (e) => {
+    const i = e.target.getAttribute('data-del');
+    if (i === null) return;
+    ses.obs.splice(Number(i), 1); save(); renderLive();
+  });
+  function rateAtTime(t) {
+    let r = 0; for (const e of ses.events) { if (e.t <= t) r = e.rate; else break; } return r;
+  }
+  function doseCell(rate, s) { return rate ? `${fmt(mu(rate, s), 1)} мЕд/мин\n${fmt(rate, 1)} мл/ч` : 'стоп'; }
+  const EVENT_CELL = { hold: '4–5 за 10 мин', pause: '', end: '' };
+  function liveSheet(s) {
+    const rows = [];
+    ses.events.forEach((e) => rows.push({ t: e.t, time: clock(e.t), dose: e.type === 'end' ? 'окончание' : doseCell(e.rate, s), contr: EVENT_CELL[e.type] || '' }));
+    (ses.obs || []).forEach((o) => {
+      const same = rows.find((r) => r.time === clock(o.t) && !r.obs);
+      const target = same || { t: o.t, time: clock(o.t), dose: doseCell(rateAtTime(o.t), s), contr: '' };
+      target.obs = true;
+      for (const k in O_IDS) if (o[k]) target[k] = o[k];
+      if (!same) rows.push(target);
+    });
+    return rows.sort((a, b) => a.t - b.t);
+  }
+  $('bPdfLive').onclick = () => {
+    const s = settings(), d = doseUntil(Date.now());
+    makePdf(liveSheet(s), s, d.units, d.ml, 'pdfMsgLive');
+  };
+
+  let pdfLib = null;
+  function loadScript(src) {
+    return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error(src)); document.head.appendChild(el); });
+  }
+  function loadPdfLib() {
+    if (!pdfLib) pdfLib = loadScript('vendor/pdfmake/pdfmake.min.js').then(() => loadScript('vendor/pdfmake/vfs_fonts.js')).then(() => window.pdfMake);
+    return pdfLib;
+  }
+  function makePdf(rows, s, units, ml, msgId) {
+    const msg = $(msgId); msg.hidden = false; msg.className = 'pdfmsg'; msg.textContent = 'Готовлю PDF…';
+    loadPdfLib().then((pdfMake) => {
+      const pt = patient();
+      const dateRu = pt.date ? pt.date.split('-').reverse().join('.') : '';
+      const C = { fontSize: 9, margin: [2, 3, 2, 3] };
+      const H = (t) => ({ text: t, bold: true, alignment: 'center', fontSize: 11, margin: [0, 3, 0, 3] });
+      const body = [[H('Время'), H('Доза'), H('Схватки'), H('КТГ'), H('АД'), H('Пульс'), H('t'), H('Диурез')]];
+      rows.forEach((r) => body.push([r.time, r.dose, r.contr, r.ktg, r.bp, r.pulse, r.temp, r.diur].map((v, i) => ({ ...C, text: v || '', alignment: i === 2 ? 'left' : 'center' }))));
+      const minRows = 18;
+      for (let i = rows.length; i < minRows; i++) body.push(Array.from({ length: 8 }, () => ({ text: ' ', margin: [0, 6, 0, 6] })));
+      const line = (label, value) => ({ columns: [{ text: label, bold: true, width: 60, fontSize: 13 }, { text: value || '______________________________', fontSize: 13 }], margin: [0, 0, 0, 6] });
+      const dd = {
+        pageSize: 'A4', pageMargins: [36, 36, 36, 40],
+        defaultStyle: { font: 'Roboto', fontSize: 10 },
+        content: [
+          { text: 'ЛИСТ НАБЛЮДЕНИЯ ПРИ ПРОВЕДЕНИИ ИНДУКЦИИ РОДОВ ПРЕПАРАТОМ', bold: true, alignment: 'center', fontSize: 11 },
+          { text: 'ОКСИТОЦИН', bold: true, alignment: 'center', fontSize: 14, margin: [0, 6, 0, 14] },
+          line('ФИО', pt.name), line('№ ИР', pt.ir), line('Дата', dateRu),
+          { text: `Раствор: ${fmt(s.units, 1)} Ед окситоцина в ${fmt(s.vol, 0)} мл (${fmt(s.conc, 3)} Ед/мл). Схема: старт ${fmt(s.start, 1)} мл/ч, +${fmt(s.step, 1)} мл/ч каждые ${s.interval} мин до 4–5 схваток за 10 мин.`, fontSize: 9, color: '#333333', margin: [0, 2, 0, 8] },
+          { table: { headerRows: 1, widths: [44, 66, '*', 54, 62, 42, 32, 48], body }, layout: { hLineWidth: () => 0.7, vLineWidth: () => 0.7 } },
+          { text: [{ text: 'Суммарно введено окситоцина: ', bold: true }, `${fmtU(units)} Ед (${fmt(ml, 1)} мл раствора)`], fontSize: 12, margin: [0, 10, 0, 0] },
+          { text: 'Подпись ______________________', alignment: 'right', margin: [0, 10, 0, 0], fontSize: 11 }
+        ]
+      };
+      const fname = `oksitocin_${(pt.ir || 'list').replace(/[^\wА-Яа-яЁё-]+/g, '_')}_${pt.date || todayISO()}.pdf`;
+      pdfMake.createPdf(dd).download(fname, () => { msg.textContent = `Сохранён файл ${fname}`; });
+      msg.textContent = `Сохраняю ${fname}`;
+    }).catch(() => {
+      pdfLib = null; msg.className = 'pdfmsg err';
+      msg.textContent = 'Не удалось загрузить модуль PDF. Откройте приложение с сайта или из папки репозитория целиком (нужна папка vendor).';
+    });
+  }
 
   const TYPE_LABEL = { start: 'Старт', up: 'Шаг вверх', hold: 'Плато', resume: 'Титрование', down: 'Шаг вниз', pause: 'Стоп', restart: 'Возобновлено', end: 'Конец' };
   let beepArmed = false, beeped = 0;
@@ -495,7 +645,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
   function renderLive() {
     const s = settings();
     $('liveIdle').hidden = !!ses; $('liveRun').hidden = !ses; $('liveLogCard').hidden = !ses;
-    if (!ses) return;
+    if (!ses) { $('obsCard').hidden = true; return; }
     const now = Date.now(), d = doseUntil(now), ev = ses.events, phase = ses.phase, rate = lastRate();
     const end = phase === 'done' ? ev[ev.length - 1].t : now;
     $('lDose').innerHTML = `${fmtU(d.units)} <small>Ед</small>`;
@@ -537,10 +687,14 @@ footer { color: var(--muted); font-size: 0.82rem; }
 
     $('lLog').innerHTML = ev.map((e) => `<li><span class="t">${clock(e.t)}</span><span>${TYPE_LABEL[e.type]}</span><span class="r">${e.rate ? fmt(e.rate, 1) + ' мл/ч' : '—'}</span></li>`).join('');
     $('lSummary').value = summaryText(now);
+    $('obsCard').hidden = false;
+    $('oList').innerHTML = (ses.obs || []).map((o, i) => `<li><span class="t">${clock(o.t)}</span><span>${[o.contr && 'схв. ' + o.contr, o.ktg && 'КТГ ' + o.ktg, o.bp && 'АД ' + o.bp, o.pulse && 'пульс ' + o.pulse, o.temp && 't ' + o.temp, o.diur && 'диурез ' + o.diur].filter(Boolean).map(esc).join(', ')}</span><button type="button" data-del="${i}" aria-label="Удалить запись">×</button></li>`).join('');
   }
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   // ---------- boot ----------
   setNowTime();
+  $('oTime').value = hhmm(Date.now());
   renderConc(); renderCalc(); renderLive();
   showTab(store.get('oxy.tab') === 'calc' ? 'calc' : 'live');
   if (ses && ses.phase !== 'done') beepArmed = false;
